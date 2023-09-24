@@ -1,5 +1,7 @@
 import gzip
+import json
 from pathlib import Path
+from string import Template
 from typing import Any
 
 # log_format ui_short '$remote_addr  $remote_user $http_x_real_ip [$time_local] "$request" '
@@ -10,7 +12,8 @@ from typing import Any
 config = {
     "REPORT_SIZE": 1000,
     "REPORT_DIR": "./reports",
-    "LOG_DIR": "./log"
+    "LOG_DIR": "./log",
+    "REPORT_TEMPLATE": "./reports/report.html"  # TODO: migrate to configuration file
 }
 
 
@@ -29,11 +32,11 @@ def read_log(file) -> str:
             yield line
 
 
-def parse_log() -> dict:
+def parse_log(log) -> dict:
     num_of_row: int = 0
     num_of_errors: int = 0
     summary: dict = {}
-    for row in read_log(latest_file()):
+    for row in read_log(log):
         num_of_row += 1
         if not row:
             num_of_errors += 1
@@ -46,7 +49,7 @@ def parse_log() -> dict:
     return summary
 
 
-def statistics_generation(data) -> list:
+def statistics_generation(data, report_size) -> str:
     # count - сĸольĸо раз встречается URL, абсолютное значение
     # count_perc - сĸольĸо раз встречается URL, в процентах относительно общего числа запросов
     # time_sum - суммарный $request_time для данного URL'а, абсолютное значение
@@ -72,7 +75,8 @@ def statistics_generation(data) -> list:
         url_data['time_med'] = calculating_median(request_time)
         total_request_time += url_data['time_sum']
         table_for_report.append(url_data)
-    return table_for_report
+    json_table = json.dumps(sorted(table_for_report, key=lambda d: d['time_sum'], reverse=True)[:report_size])
+    return json_table
 
 
 def summary_information(data, summary) -> dict:
@@ -89,15 +93,31 @@ def summary_information(data, summary) -> dict:
     return summary
 
 
-def latest_file() -> str:
-    path = config['LOG_DIR']
-    files = [path.name for path in Path(path).glob('nginx-access-ui.log-*.gz')]
-    return config["LOG_DIR"] + "/" + max(files)
+def create_report(table, data) -> None:
+    template_path: str = config['REPORT_TEMPLATE']
+    html_file: str = config['REPORT_DIR'] + "/" + data + '.html'
+    with open(template_path, 'r', encoding="utf-8") as template:
+        with open(html_file, 'w+', encoding="utf-8") as report:
+            lines: str = template.read()
+            new_lines: str = Template(lines).safe_substitute(dict(table_json=table))
+            report.write(new_lines)
+
+
+def latest_file() -> list[str]:
+    file_info: list[str] = []
+    path: str = config['LOG_DIR']
+    files: list = [path.name for path in Path(path).glob('nginx-access-ui.log-*.gz')]
+    file_found: str = max(files)
+    file_path: str = config["LOG_DIR"] + "/" + file_found
+    file_info.append(file_path)
+    file_info.append(file_found[20:-3])
+    return file_info
 
 
 def main() -> None:
-    total_data = parse_log()
-    print(statistics_generation(total_data))
+    file_info = latest_file()
+    total_data = parse_log(file_info[0])
+    create_report(statistics_generation(total_data, config["REPORT_SIZE"]), file_info[1])
 
 
 if __name__ == "__main__":
