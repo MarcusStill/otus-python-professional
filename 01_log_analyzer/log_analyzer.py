@@ -3,6 +3,9 @@ import json
 from pathlib import Path
 from string import Template
 from typing import Any
+import os
+import argparse
+import sys
 
 # log_format ui_short '$remote_addr  $remote_user $http_x_real_ip [$time_local] "$request" '
 #                     '$status $body_bytes_sent "$http_referer" '
@@ -13,7 +16,10 @@ config = {
     "REPORT_SIZE": 1000,
     "REPORT_DIR": "./reports",
     "LOG_DIR": "./log",
-    "REPORT_TEMPLATE": "./reports/report.html"  # TODO: migrate to configuration file
+    "REPORT_TEMPLATE": "./reports/report.html",
+    "CONFIG_PATH": "./config.json",
+    "LOG_FILE": "./log_analyze.log",
+    "ERROR_THRESHOLD_PERCENT": 10
 }
 
 
@@ -103,22 +109,42 @@ def create_report(table, data) -> None:
             report.write(new_lines)
 
 
-def latest_file() -> list[str]:
+def read_config(conf, file) -> dict:
+    with open(file, 'r') as f:
+        config: Any = json.load(f)
+
+    for key, value in config.items():
+        conf[key] = value
+    return config
+
+
+def latest_file(log_dir) -> list[str]:
     file_info: list[str] = []
-    path: str = config['LOG_DIR']
+    path: str = log_dir
     files: list = [path.name for path in Path(path).glob('nginx-access-ui.log-*.gz')]
     file_found: str = max(files)
-    file_path: str = config["LOG_DIR"] + "/" + file_found
+    file_path: str = log_dir + "/" + file_found
     file_info.append(file_path)
     file_info.append(file_found[20:-3])
     return file_info
 
 
-def main() -> None:
-    file_info = latest_file()
+def main(new_conf) -> None:
+    current_сonf = new_conf | config
+    file_info = latest_file(current_сonf['LOG_DIR'])
     total_data = parse_log(file_info[0])
-    create_report(statistics_generation(total_data, config["REPORT_SIZE"]), file_info[1])
+    #print(statistics_generation(total_data, current_сonf["REPORT_SIZE"]), file_info[1])
+    create_report(statistics_generation(total_data, current_сonf["REPORT_SIZE"]), file_info[1])
+    print('Done!')
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description='Log analyzer')
+    parser.add_argument(
+        '--config', type=str, default='./config.json', help='Alternate configuration file path'
+    )
+    args = parser.parse_args()
+    os.chdir(os.path.dirname(__file__))
+    config_file = os.path.join(args.config)
+    current_config_file = read_config(config, config_file)
+    main(current_config_file)
